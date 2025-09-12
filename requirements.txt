@@ -1,0 +1,12 @@
+pandas
+torch
+transformers
+datasets
+accelerate
+scipy
+matplotlib
+seaborn
+tqdm
+nltk
+streamlit
+scikit-learn
