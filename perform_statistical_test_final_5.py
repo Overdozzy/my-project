@@ -1,113 +1,69 @@
 """
-Performs statistical analysis on intrinsic bias evaluation results.
+STEP 5 (FINAL, CLASSIFICATION-BASED):
+Statistical significance testing for BOTH bias metrics on classifier outputs.
 
-This script loads the baseline and debiased model evaluation scores,
-conducts a paired t-test to assess statistical significance, and generates
-a bar chart to visualize the comparison of bias metrics.
+This script loads the results from the baseline (Step 3) and debiased (Step 4)
+classification-based evaluations and performs a paired t-test on both the
+Probability Delta and the Log-Odds Delta metrics (absolute values).
 """
 import pandas as pd
 from scipy import stats
-import matplotlib.pyplot as plt
-import seaborn as sns
-import os
 
 def main():
-    # --- 1. Define file paths and load data ---
-    baseline_file = "baseline_bias_results_FINAL.csv"
-    debiased_file = "debiased_bias_results_FINAL.csv"
+    print("--- STEP 5 (FINAL, CLS): Performing Statistical Significance Tests ---")
 
-    if not os.path.exists(baseline_file) or not os.path.exists(debiased_file):
-        print(f"Error: One or both result CSV files not found.")
-        print("Ensure scripts 3 and 4 have been run successfully.")
+    baseline_results_file = "baseline_bias_results_cls.csv"
+    debiased_results_file = "debiased_bias_results_cls.csv"
+
+    try:
+        df_baseline = pd.read_csv(baseline_results_file)
+        df_debiased = pd.read_csv(debiased_results_file)
+    except FileNotFoundError as e:
+        print(f" ERROR: Could not find a results file: {e.filename}")
         return
 
-    print("Performing statistical analysis...")
-    df_baseline = pd.read_csv(baseline_file)
-    df_debiased = pd.read_csv(debiased_file)
-
-    # --- 2. Align dataframes for paired comparison ---
-    # A unique key is created from context and stereotype word for accurate merging.
-    df_baseline['key'] = df_baseline['context'] + "_" + df_baseline['stereotype_word']
-    df_debiased['key'] = df_debiased['context'] + "_" + df_debiased['stereotype_word']
-    
-    merged_df = pd.merge(
-        df_baseline,
-        df_debiased,
-        on='key',
+    # Merge by profession
+    comparison_df = pd.merge(
+        df_baseline, df_debiased,
+        on=['profession'],
         suffixes=('_baseline', '_debiased')
     )
-    
-    if len(merged_df) == 0:
-        print("Error: No matching data found for comparison between result files.")
-        return
-        
-    print(f"Found {len(merged_df)} paired examples for statistical testing.")
+    print(f"Found {len(comparison_df)} professions to compare.")
 
-    # --- 3. Conduct Paired T-Tests on absolute scores ---
-    ttest_prob = stats.ttest_rel(merged_df['avg_prob_diff_baseline'].abs(), merged_df['avg_prob_diff_debiased'].abs())
-    ttest_log_odds = stats.ttest_rel(merged_df['avg_log_odds_diff_baseline'].abs(), merged_df['avg_log_odds_diff_debiased'].abs())
+    # --- Test 1: Probability Delta Metric ---
+    baseline_prob_scores = comparison_df['avg_prob_delta_baseline'].abs()
+    debiased_prob_scores = comparison_df['avg_prob_delta_debiased'].abs()
+    t_stat_prob, p_val_prob = stats.ttest_rel(baseline_prob_scores, debiased_prob_scores)
 
-    # --- 4. Display Statistical Summary ---
-    print("\nStatistical Test Results:")
-    print("-" * 70)
-    
-    print("\nMetric 1: Probability Difference")
-    print(f"  - Baseline Avg. Absolute Score: {merged_df['avg_prob_diff_baseline'].abs().mean():.4f}")
-    print(f"  - Debiased Avg. Absolute Score: {merged_df['avg_prob_diff_debiased'].abs().mean():.4f}")
-    print(f"  - T-statistic: {ttest_prob.statistic:.4f}, P-value: {ttest_prob.pvalue:.4f}")
-    if ttest_prob.pvalue < 0.05:
-        print("  - Result: Statistically significant (p < 0.05).")
+    # --- Test 2: Log-Odds Delta Metric ---
+    baseline_log_scores = comparison_df['avg_log_odds_delta_baseline'].abs()
+    debiased_log_scores = comparison_df['avg_log_odds_delta_debiased'].abs()
+    t_stat_log, p_val_log = stats.ttest_rel(baseline_log_scores, debiased_log_scores)
+
+    # --- Print Results ---
+    print("\n" + "="*70)
+    print("        FINAL STATISTICAL SIGNIFICANCE TEST RESULTS (CLS)")
+    print("="*70)
+
+    print("\n--- Metric 1: Probability Delta ---")
+    print(f"Baseline Avg. Absolute Score: {baseline_prob_scores.mean():.4f}")
+    print(f"Debiased Avg. Absolute Score: {debiased_prob_scores.mean():.4f}")
+    print(f"T-statistic: {t_stat_prob:.4f}, P-value: {p_val_prob:.4g}")
+    if p_val_prob < 0.05:
+        print(" Result is STATISTICALLY SIGNIFICANT.")
     else:
-        print("  - Result: Not statistically significant (p >= 0.05).")
-
-    print("\nMetric 2: Log-Odds Difference")
-    print(f"  - Baseline Avg. Absolute Score: {merged_df['avg_log_odds_diff_baseline'].abs().mean():.4f}")
-    print(f"  - Debiased Avg. Absolute Score: {merged_df['avg_log_odds_diff_debiased'].abs().mean():.4f}")
-    print(f"  - T-statistic: {ttest_log_odds.statistic:.4f}, P-value: {ttest_log_odds.pvalue:.4f}")
-    if ttest_log_odds.pvalue < 0.05:
-        print("  - Result: Statistically significant (p < 0.05).")
+        print("  Result is NOT statistically significant.")
+    
+    print("\n--- Metric 2: Log-Odds Delta ---")
+    print(f"Baseline Avg. Absolute Score: {baseline_log_scores.mean():.4f}")
+    print(f"Debiased Avg. Absolute Score: {debiased_log_scores.mean():.4f}")
+    print(f"T-statistic: {t_stat_log:.4f}, P-value: {p_val_log:.4g}")
+    if p_val_log < 0.05:
+        print(" Result is STATISTICALLY SIGNIFICANT.")
     else:
-        print("  - Result: Not statistically significant (p >= 0.05).")
-    print("-" * 70)
-
-    # --- 5. Generate and Save Plot ---
-    print("\nGenerating results plot...")
+        print(" Result is NOT statistically significant.")
     
-    # Restructure data for Seaborn plotting
-    plot_data = []
-    for index, row in merged_df.iterrows():
-        plot_data.append({'Model': 'Baseline', 'Metric': 'Probability Difference', 'Score': abs(row['avg_prob_diff_baseline'])})
-        plot_data.append({'Model': 'Debiased', 'Metric': 'Probability Difference', 'Score': abs(row['avg_prob_diff_debiased'])})
-        plot_data.append({'Model': 'Baseline', 'Metric': 'Log-Odds Difference', 'Score': abs(row['avg_log_odds_diff_baseline'])})
-        plot_data.append({'Model': 'Debiased', 'Metric': 'Log-Odds Difference', 'Score': abs(row['avg_log_odds_diff_debiased'])})
-    
-    plot_df = pd.DataFrame(plot_data)
-
-    # Create the bar chart
-    plt.figure(figsize=(10, 6))
-    sns.set_style("whitegrid")
-    bar_plot = sns.barplot(
-        x='Metric',
-        y='Score',
-        hue='Model',
-        data=plot_df,
-        palette=['#d9534f', '#5cb85c'],
-        errorbar=('ci', 95) # Uses modern errorbar parameter for confidence intervals
-    )
-    
-    plt.title('Effectiveness of Counterfactual Debiasing on Intrinsic Bias', fontsize=16)
-    plt.ylabel('Average Absolute Bias Score', fontsize=12)
-    plt.xlabel('Bias Metric', fontsize=12)
-    plt.xticks(fontsize=11)
-    plt.yticks(fontsize=11)
-    bar_plot.legend(title='Model Type', fontsize=11)
-    
-    # Save the plot to a high-resolution file
-    plot_output_file = "bias_reduction_results.png"
-    plt.savefig(plot_output_file, dpi=300, bbox_inches='tight')
-    
-    print(f"Plot saved to {plot_output_file}")
+    print("\n" + "="*70)
 
 if __name__ == '__main__':
     main()
-
