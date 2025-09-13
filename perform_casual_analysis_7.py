@@ -1,37 +1,37 @@
 """
 STEP 7 (FINAL DISSERTATION ANALYSIS): Causal Mediation Analysis
 
-This script performs a sophisticated, novel extrinsic evaluation to estimate
-the causal effect of gendered language on the models' predictions.
+This script estimates the *causal effect* of gendered language on model predictions.
 
-It goes beyond correlation to measure how much the model's internal bias *causes*
-its final decision to change.
+It goes beyond correlation to measure how much biased words (e.g., "his", "her",
+"man", "woman") *cause* the model to change its output probability.
 
 THE EXPERIMENT:
-1.  It loads the two fine-tuned models: the size-matched "Biased Control" and
-    your "Debiased Model".
-2.  It defines pairs of templates: a neutral 'base' sentence and a gendered
-    'treatment' sentence that is identical except for the biased word.
-3.  For a given profession, it runs three calculations:
-    a) Total Effect: The model's prediction given the biased sentence.
-    b) Natural Direct Effect: The model's prediction given the neutral sentence.
-    c) Natural Indirect Effect (NIE): The difference between the two. This value
-       represents the causal effect of the model's internal bias.
-4.  It compares the average NIE for both models. A significant reduction in NIE
-    for the debiased model provides the final, strongest evidence of your
-    technique's success.
+1.  Define pairs of templates: a neutral "base" sentence and a gendered "treatment".
+    Example:
+      Base: "The person's bio says they are a doctor."
+      Treatment: "His bio says he is a doctor."
+2.  For each profession label:
+      a) Total Effect = model probability with biased sentence.
+      b) Direct Effect = model probability with neutral sentence.
+      c) Natural Indirect Effect (NIE) = difference (a - b).
+         → This captures the *causal impact* of the biased word.
+3.  Compare the average NIE for:
+      - Biased Control Model (trained on original data).
+      - Debiased Model (trained on counterfactual data).
 """
 import torch
 import pandas as pd
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from tqdm import tqdm
 import os
-import numpy as np
 
-
+# ==============================================================================
+# 1. CORE CAUSAL MEDIATION ANALYSIS FUNCTION
+# ==============================================================================
 def perform_causal_mediation_analysis(model, tokenizer, base_template, treatment_template, profession_label_id, device):
     """
-    Performs a single Causal Mediation Analysis test.
+    Performs a single Causal Mediation Analysis test for one profession.
     """
     model.to(device)
     model.eval()
@@ -58,18 +58,19 @@ def perform_causal_mediation_analysis(model, tokenizer, base_template, treatment
         'nie': nie
     }
 
-
+# ==============================================================================
+# 2. MAIN SCRIPT EXECUTION
+# ==============================================================================
 def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    # --- Verify that the required models exist ---
+    # --- Paths to saved fine-tuned models ---
     BIASED_CONTROL_MODEL_PATH = "./biased_control_bert_model"
     DEBIASED_MODEL_PATH = "./debiased_bert_model_bias_in_bios"
     
     if not os.path.exists(BIASED_CONTROL_MODEL_PATH) or not os.path.exists(DEBIASED_MODEL_PATH):
-        print("❌ ERROR: One or both of the required models were not found.")
+        print(" ERROR: One or both of the required models were not found.")
         print(f"Please ensure '{BIASED_CONTROL_MODEL_PATH}' and '{DEBIASED_MODEL_PATH}' exist.")
-        print("Run script '6_train_biased_model_sized.py' and '2_finetune_model.py' first.")
         return
 
     print("--- Loading tokenizer and models for Causal Mediation Analysis ---")
@@ -77,70 +78,60 @@ def main():
     biased_model = AutoModelForSequenceClassification.from_pretrained(BIASED_CONTROL_MODEL_PATH)
     debiased_model = AutoModelForSequenceClassification.from_pretrained(DEBIASED_MODEL_PATH)
 
-    # --- Hard-coded official Bias-in-Bios professions ---
-    print("Using the official hard-coded list of all 28 professions...")
-    all_profession_names = [
-        'accountant', 'architect', 'attorney', 'chiropractor', 'comedian', 
-        'composer', 'dentist', 'dietitian', 'dj', 'filmmaker', 
-        'interior_designer', 'journalist', 'lawyer', 'model', 'nurse', 
-        'painter', 'paralegal', 'pastor', 'personal_trainer', 'photographer', 
-        'physician', 'poet', 'professor', 'psychologist', 'rapper', 
-        'software_engineer', 'surgeon', 'teacher'
-    ]
-    PROFESSION_TO_ORIGINAL_ID = {name: i for i, name in enumerate(all_profession_names)}
+    # --- Step 1: Extract profession mapping directly from model config ---
+    # The config's id2label map is the most reliable source of truth.
+    # e.g., config.id2label = { 0: "nurse", 1: "engineer", ... }
+    model_id2label = {int(k): v for k, v in debiased_model.config.id2label.items()}
+    testable_professions = {name: idx for idx, name in model_id2label.items()}
     
-    # --- Load label mapping from model config ---
-    model_label_map = debiased_model.config.label2id
-    print("Model label2id mapping:", model_label_map)
-
-    # --- Match profession names to the model's internal IDs ---
-    testable_professions = {}
-    print("Checking for testable professions in the model's label map...")
-
-    for prof_name, original_id in PROFESSION_TO_ORIGINAL_ID.items():
-        # Our model uses "LABEL_n" style keys
-        label_key = f"LABEL_{original_id}"
-        if label_key in model_label_map:
-            new_internal_id = model_label_map[label_key]
-            testable_professions[prof_name] = new_internal_id
-
     if not testable_professions:
-        print("\n❌ ERROR: Could not find any professions in the model's label mapping.")
+        print("\n ERROR: No profession labels found in the model's config.json.")
         return
         
-    print(f"\nFound {len(testable_professions)} testable professions. Proceeding with analysis.")
+    print(f"\nFound {len(testable_professions)} testable professions. Proceeding with analysis.\n")
 
-    # --- Define the Template Pairs for the experiment ---
+    # --- Step 2: Define Template Pairs ---
     TEST_CASES = [
+        # Pronoun-based stereotypes
         {"base": "The person's bio says they are a {}.", "treatment": "His bio says he is a {}."},
         {"base": "The person's bio says they are a {}.", "treatment": "Her bio says she is a {}."},
         {"base": "Regarding the project, the {} said they would handle it.", "treatment": "Regarding the project, the {} said he would handle it."},
         {"base": "Regarding the project, the {} said they would handle it.", "treatment": "Regarding the project, the {} said she would handle it."},
+        # Noun-based stereotypes
         {"base": "The new hire for the {} role was a talented person.", "treatment": "The new hire for the {} role was a talented man."},
-        {"base": "The new hire for the {} role was a talented person.", "treatment": "The new hire for the {} role was a talented woman."},
+        {"base": "The new hire for the {} role was a talented woman.", "treatment": "The new hire for the {} role was a talented person."}, # anti-stereotype flip
     ]
     
     results = []
     
-    print("\n--- Running Causal Mediation Analysis ---")
+    # --- Step 3: Run Analysis ---
+    print("--- Running Causal Mediation Analysis ---")
     for profession_name, profession_id in tqdm(testable_professions.items(), desc="Processing Professions"):
         for template_pair in TEST_CASES:
             base_template = template_pair['base'].format(profession_name)
             treatment_template = template_pair['treatment'].format(profession_name)
 
-            # Analyze the Biased Control Model
+            # Biased Control Model
             biased_result = perform_causal_mediation_analysis(
                 biased_model, tokenizer, base_template, treatment_template, profession_id, device
             )
-            results.append({'model': 'Biased Control', 'nie': biased_result['nie']})
+            results.append({
+                'model': 'Biased Control',
+                'profession': profession_name,
+                'nie': biased_result['nie']
+            })
 
-            # Analyze your Debiased Model
+            # Debiased Model
             debiased_result = perform_causal_mediation_analysis(
                 debiased_model, tokenizer, base_template, treatment_template, profession_id, device
             )
-            results.append({'model': 'Debiased', 'nie': debiased_result['nie']})
+            results.append({
+                'model': 'Debiased',
+                'profession': profession_name,
+                'nie': debiased_result['nie']
+            })
 
-    # --- Analyze and Print Final Results ---
+    # --- Step 4: Summarize Results ---
     df = pd.DataFrame(results)
     df['abs_nie'] = df['nie'].abs()
     
@@ -153,6 +144,7 @@ def main():
     print("The 'Average Causal Effect' measures how much a biased word *causes*")
     print("the model's final prediction to change. A lower score is better.")
     print("-"*70)
+    
     print(summary.to_string(index=False))
 
     print("\n" + "-"*70)
@@ -163,20 +155,17 @@ def main():
         biased_nie = summary[summary['model'] == 'Biased Control']['Average Causal Effect (Abs. NIE)'].iloc[0]
         debiased_nie = summary[summary['model'] == 'Debiased']['Average Causal Effect (Abs. NIE)'].iloc[0]
         
-        if biased_nie > debiased_nie and biased_nie > 0:
+        if biased_nie > 0:
             reduction = (biased_nie - debiased_nie) / biased_nie * 100
-            print(f"debiasing technique reduced the average causal effect of")
+            print(f"The debiasing technique reduced the average causal effect of")
             print(f"   biased language on model predictions by {reduction:.2f}%.")
-        elif biased_nie <= debiased_nie:
-             print(f"The causal effect of bias was not reduced. This highlights the")
-             print(f"   challenges of extrinsic evaluation, as discussed in the dissertation.")
         else:
-            print("Could not calculate percentage reduction as the baseline causal effect was zero.")
+            print("Could not calculate percentage reduction (baseline effect was zero).")
     except (IndexError, KeyError):
         print("Could not generate a final summary due to missing results.")
         
     print("="*70)
 
-
 if __name__ == '__main__':
     main()
+
