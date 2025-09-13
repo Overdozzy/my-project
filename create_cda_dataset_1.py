@@ -88,7 +88,7 @@ def main():
 
     # Load and process the Bias in Bios dataset
     print("Loading 'Bias in Bios' dataset...")
-    dataset = load_dataset("LabHC/bias_in_bios", split="train[:10000]")
+    dataset = load_dataset("LabHC/bias_in_bios", split="train[:15000]")
 
     print("Filtering for biographies with gendered words...")
     def find_gendered_words(example):
