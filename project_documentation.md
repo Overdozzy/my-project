@@ -91,28 +91,23 @@ Execution Order:
 Phase 1: Data Creation & Model Training
 (Run these first, preferably on a GPU)
 
-python 1_create_cda_dataset.py
+- python 1_create_cda_dataset.py
 
-python 2_finetune_model.py
+- python 2_finetune_model.py
 
-python 6_train_biased_model_sized.py
+- python 6_train_biased_model_sized.py
 
-Phase 2: Analysis & Evaluation (These can be run locally on a CPU) 4. python 3_evaluate_baseline_final.py 5. python 4_evaluate_debiased_final.py 6. python 5_perform_statistical_test_final.py 7. python 7_perform_causal_analysis.py
-Option B: Quick Evaluation (Using Provided Models)
-
-This is the recommended method for quickly verifying the project's findings without re-running the lengthy training process. I have included the finetuned models unzipped, the two model folders (biased_control_bert_model and debiased_bert_model_bias_in_bios) into the main project directory.
-
-You can skip the training steps and run the analysis scripts directly.
+Phase 2: Analysis & Evaluation (These can be run locally on a CPU)
 
 Execution Order:
 
-python 3_evaluate_baseline_final.py
+- python 3_evaluate_baseline_final.py
 
-python 4_evaluate_debiased_final.py
+- python 4_evaluate_debiased_final.py
 
-python 5_perform_statistical_test_final.py
+- python 5_perform_statistical_test_final.py
 
-python 7_perform_causal_analysis.py
+- python 7_perform_causal_analysis.py
 
 
 
@@ -125,4 +120,5 @@ python 7_perform_causal_analysis.py
 4. How to Run the ipynb Demonstration
 
 The ipynb file is also with me. It was quite difficult to get the same result on my local machine as on Kaggle, so I included the file to represent the work shown in my dissertation.
+
 
